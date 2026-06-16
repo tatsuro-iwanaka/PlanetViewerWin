@@ -17,53 +17,51 @@ jobs:
       run: |
         mkdir -Force spice_kernel
 
-        # クッキーファイルから正確に確認コードを抽出する修正関数
-        function Download-FromGDrive {
-            param (
-                [string]$FileId,
-                [string]$OutPath
-            )
-            # 1次試行：クッキーを保存しつつダウンロードを試みる（大容量ファイルはここで2KBの警告HTMLになる）
-            curl.exe -Lc cookie.txt "https://drive.google.com/uc?export=download&id=$FileId" -o $OutPath
+        # 1. 公式パブリックサーバーからの直接取得（Google Driveの警告を完全に回避）
+        Write-Output "Downloading naif0012.tls from NAIF..."
+        curl.exe -L -o spice_kernel/naif0012.tls https://naif.jpl.nasa.gov/pub/naif/generic_kernels/lsk/naif0012.tls
 
-            # クッキーファイルが存在し、かつ警告クッキーが書き込まれているか判定
-            if (Test-Path cookie.txt) {
-                $warningLine = Get-Content cookie.txt | Select-String "download_warning"
-                if ($warningLine) {
-                    # クッキーの行を空白で分割し、末尾にある確認コードを抽出
-                    $CODE = ($warningLine -split "\s+")[-1]
-                    
-                    # 抽出した確認コードを使い、本物のバイナリデータを上書きダウンロード
-                    curl.exe -Lb cookie.txt "https://drive.google.com/uc?export=download&confirm=$CODE&id=$FileId" -o $OutPath
-                }
-                Remove-Item cookie.txt -ErrorAction SilentlyContinue
-            }
-        }
+        Write-Output "Downloading pck00010.tpc from NAIF..."
+        curl.exe -L -o spice_kernel/pck00010.tpc https://naif.jpl.nasa.gov/pub/naif/generic_kernels/pck/pck00010.tpc
 
-        # 各ファイルの一括ダウンロード実行
-        Write-Output "Downloading naif0012.tls..."
-        Download-FromGDrive "1obQviGyym4dtEMsgENteACCZxEKMG0BS" "spice_kernel/naif0012.tls"
+        Write-Output "Downloading earth_latest_high_prec.bpc from NAIF..."
+        curl.exe -L -o spice_kernel/earth_latest_high_prec.bpc https://naif.jpl.nasa.gov/pub/naif/generic_kernels/pck/earth_latest_high_prec.bpc
 
-        Write-Output "Downloading pck00010.tpc..."
-        Download-FromGDrive "1Xm56M5ooSE4oXzV3TlJ6LeDv72T3Ufrq" "spice_kernel/pck00010.tpc"
+        Write-Output "Downloading de442.bsp from NAIF (Direct)..."
+        curl.exe -L -o spice_kernel/de442.bsp https://naif.jpl.nasa.gov/pub/naif/generic_kernels/spk/planets/de442.bsp
 
-        Write-Output "Downloading earth_latest_high_prec.bpc..."
-        Download-FromGDrive "1dyBV3Fff4VlGR-DKeOvBzN6Zvcg6vm1O" "spice_kernel/earth_latest_high_prec.bpc"
+        Write-Output "Downloading gm_de440.tpc from NAIF..."
+        curl.exe -L -o spice_kernel/gm_de440.tpc https://naif.jpl.nasa.gov/pub/naif/generic_kernels/pck/gm_de440.tpc
 
-        Write-Output "Downloading de442.bsp..."
-        Download-FromGDrive "15vUA4qBKUsjD2Vf_nHfYJ5YjMJnsCMiU" "spice_kernel/de442.bsp"
-
-        Write-Output "Downloading gm_de440.tpc..."
-        Download-FromGDrive "1h56iEcIP-1Wxd42MK_CPsJwESP--Qn81" "spice_kernel/gm_de440.tpc"
-
+        # 2. Google Drive（中容量：スキャン警告なし）
         Write-Output "Downloading earth_2025_250826_2125_predict.bpc..."
-        Download-FromGDrive "11pWdOQS50RlpfPhJytukCnyXdAEUoAgv" "spice_kernel/earth_2025_250826_2125_predict.bpc"
+        curl.exe -L -o spice_kernel/earth_2025_250826_2125_predict.bpc "https://drive.google.com/uc?export=download&id=11pWdOQS50RlpfPhJytukCnyXdAEUoAgv"
 
         Write-Output "Downloading earth_1962_250826_2125_combined.bpc..."
-        Download-FromGDrive "1imoKimsJvCKXgVHY4xiSmhI8L6LgYwQH" "spice_kernel/earth_1962_250826_2125_combined.bpc"
+        curl.exe -L -o spice_kernel/earth_1962_250826_2125_combined.bpc "https://drive.google.com/uc?export=download&id=1imoKimsJvCKXgVHY4xiSmhI8L6LgYwQH"
 
+        # 3. Google Drive（大容量：スキャン警告あり、HTMLから正規表現で直接コードを抽出）
         Write-Output "Downloading jup365_subset.bsp..."
-        Download-FromGDrive "12jyDW1jjQyZdEQWQv8UpKkLMeUJ0ibV6" "spice_kernel/jup365_subset.bsp"
+        $JUP_ID = "12jyDW1jjQyZdEQWQv8UpKkLMeUJ0ibV6"
+        
+        # 1回目：警告HTMLを一時ファイルとして取得
+        curl.exe -Lc gdrive_cookie.txt "https://drive.google.com/uc?export=download&id=$JUP_ID" -o jup_temp.html
+        
+        # HTMLの文字列を走査し、confirm=XXXX のパターンを検索
+        $htmlContent = Get-Content -Raw jup_temp.html
+        if ($htmlContent -match 'confirm=([0-9a-zA-Z_-]+)') {
+            $CONFIRM_CODE = $Matches[1]
+            Write-Output "Confirm code successfully detected. Re-downloading payload..."
+            # 2回目：抽出した確認コードを付与して本番データを取得（上書き）
+            curl.exe -Lb gdrive_cookie.txt "https://drive.google.com/uc?export=download&confirm=$CONFIRM_CODE&id=$JUP_ID" -o spice_kernel/jup365_subset.bsp
+        } else {
+            # 警告が発生しなかった場合は一時ファイルをそのまま正規パスへ移行
+            Move-Item jup_temp.html spice_kernel/jup365_subset.bsp -Force
+        }
+        
+        # 不要になった一時管理ファイルの削除
+        Remove-Item jup_temp.html -ErrorAction SilentlyContinue
+        Remove-Item gdrive_cookie.txt -ErrorAction SilentlyContinue
 
         Write-Output "All kernels verification and download complete."
 
