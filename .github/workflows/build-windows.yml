@@ -12,6 +12,60 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
+    # ---- 【修正・完全版】ビルド時カーネル自動ダウンロードステップ ----
+    - name: Download SPICE Kernels
+      shell: pwsh
+      run: |
+        mkdir -Force spice_kernel
+
+        # Google Driveから容量（警告の有無）を自動判別してダウンロードする内部関数を定義
+        function Download-FromGDrive {
+            param (
+                [string]$FileId,
+                [string]$OutPath
+            )
+            # 1次試行：通常のダウンロードエンドポイントへリクエストを送信
+            curl.exe -Lc cookie.txt "https://drive.google.com/uc?export=download&id=$FileId" -o $OutPath
+
+            # クッキーファイルを解析し、大容量ファイル特有のウイルススキャン警告文字列の有無を判定
+            if (Test-Path cookie.txt) {
+                $warning = Get-Content cookie.txt | Select-String "_warning_"
+                if ($warning) {
+                    # 警告が存在する場合、末尾の4文字の確認コードを抽出して再要求を実行
+                    $CODE = ($warning -split "\s+")[-1]
+                    curl.exe -Lb cookie.txt "https://drive.google.com/uc?export=download&confirm=$CODE&id=$FileId" -o $OutPath
+                }
+                Remove-Item cookie.txt -ErrorAction SilentlyContinue
+            }
+        }
+
+        # 各URLから抽出した一意のファイルIDを、上記関数へ引き渡して順次実行
+        Write-Output "Downloading naif0012.tls..."
+        Download-FromGDrive "1obQviGyym4dtEMsgENteACCZxEKMG0BS" "spice_kernel/naif0012.tls"
+
+        Write-Output "Downloading pck00010.tpc..."
+        Download-FromGDrive "1Xm56M5ooSE4oXzV3TlJ6LeDv72T3Ufrq" "spice_kernel/pck00010.tpc"
+
+        Write-Output "Downloading earth_latest_high_prec.bpc..."
+        Download-FromGDrive "1dyBV3Fff4VlGR-DKeOvBzN6Zvcg6vm1O" "spice_kernel/earth_latest_high_prec.bpc"
+
+        Write-Output "Downloading de442.bsp..."
+        Download-FromGDrive "15vUA4qBKUsjD2Vf_nHfYJ5YjMJnsCMiU" "spice_kernel/de442.bsp"
+
+        Write-Output "Downloading gm_de440.tpc..."
+        Download-FromGDrive "1h56iEcIP-1Wxd42MK_CPsJwESP--Qn81" "spice_kernel/gm_de440.tpc"
+
+        Write-Output "Downloading earth_2025_250826_2125_predict.bpc..."
+        Download-FromGDrive "11pWdOQS50RlpfPhJytukCnyXdAEUoAgv" "spice_kernel/earth_2025_250826_2125_predict.bpc"
+
+        Write-Output "Downloading earth_1962_250826_2125_combined.bpc..."
+        Download-FromGDrive "1imoKimsJvCKXgVHY4xiSmhI8L6LgYwQH" "spice_kernel/earth_1962_250826_2125_combined.bpc"
+
+        Write-Output "Downloading jup365_subset.bsp..."
+        Download-FromGDrive "12jyDW1jjQyZdEQWQv8UpKkLMeUJ0ibV6" "spice_kernel/jup365_subset.bsp"
+
+        Write-Output "All kernels downloaded successfully."
+
     # ビルド高速化のためのキャッシュ機構
     - name: Restore vcpkg cache
       uses: actions/cache@v4
