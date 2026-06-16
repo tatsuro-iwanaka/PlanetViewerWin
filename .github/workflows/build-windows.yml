@@ -12,39 +12,44 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    # ---- 【指示通り：Google Drive完全統一版】ビルド時カーネル自動ダウンロードステップ ----
     - name: Download SPICE Kernels
       shell: pwsh
       run: |
         mkdir -Force spice_kernel
 
-        # クッキーの末尾構造から4文字の確認コードを確実にパースする強靭化関数
         function Download-FromGDrive {
             param (
                 [string]$FileId,
                 [string]$OutPath
             )
-            # 1次試行：クッキーを保存しつつ、一度ダウンロードを要求
-            curl.exe -Lc cookie.txt "https://drive.google.com/uc?export=download&id=$FileId" -o $OutPath
+            # 1. 提示された手順通り、まずはボディ（HTML）を捨ててクッキーのみを生成
+            curl.exe -sc cookie.txt "https://drive.google.com/uc?export=download&id=$FileId" > $null
 
             if (Test-Path cookie.txt) {
-                # クッキーの内容を走査
-                foreach ($line in Get-Content cookie.txt) {
-                    # 警告記述（_warning_）が存在し、その末尾にある4文字の英数字コードを正規表現で捕捉
-                    if ($line -match '_warning_.*\s+([A-Za-z0-9]{4})\s*$') {
-                        $CODE = $Matches[1]
-                        Write-Output "Warning cleared for ID: $FileId (Code: $CODE). Re-downloading..."
-                        
-                        # 抽出した確認コードを用いて本番データを上書き取得
-                        curl.exe -Lb cookie.txt "https://drive.google.com/uc?export=download&confirm=$CODE&id=$FileId" -o $OutPath
-                        break
-                    }
+                # 2. awk '/_warning_/ {print $NF}' の挙動をPowerShellで完全エミュレート
+                $warningMatch = Get-Content cookie.txt | Select-String "_warning_"
+                
+                if ($warningMatch) {
+                    # 一致した行のテキストを抽出し、空白・タブで分割。末尾の4文字コードを厳密に取得
+                    $line = $warningMatch[0].Line.Trim()
+                    $chunks = $line -split "\s+"
+                    $CODE = $chunks[-1].Trim()
+
+                    Write-Output "Warning bypassed for ID: $FileId. Confirm Code: $CODE"
+                    # 3. 抽出したコードを付与して本番ダウンロードを実行
+                    curl.exe -Lb cookie.txt "https://drive.google.com/uc?export=download&confirm=${CODE}&id=${FileId}" -o $OutPath
+                } else {
+                    # ファイルサイズが小さく、確認ダイアログが出ない場合の手順
+                    Write-Output "Small file detected for ID: $FileId. Downloading directly..."
+                    curl.exe -L "https://drive.google.com/uc?export=download&id=${FileId}" -o $OutPath
                 }
+                
+                # 一時クッキーの削除
                 Remove-Item cookie.txt -ErrorAction SilentlyContinue
             }
         }
 
-        # 提示された全8ファイルのGoogle Drive IDによるシーケンシャル・ダウンロード
+        # 全ファイルをGoogle Driveから順次取得
         Write-Output "Downloading naif0012.tls..."
         Download-FromGDrive "1obQviGyym4dtEMsgENteACCZxEKMG0BS" "spice_kernel/naif0012.tls"
 
@@ -69,7 +74,7 @@ jobs:
         Write-Output "Downloading jup365_subset.bsp..."
         Download-FromGDrive "12jyDW1jjQyZdEQWQv8UpKkLMeUJ0ibV6" "spice_kernel/jup365_subset.bsp"
 
-        Write-Output "All kernels downloaded from Google Drive."
+        Write-Output "All kernels downloaded from Google Drive successfully."
 
     # ビルド高速化のためのキャッシュ機構
     - name: Restore vcpkg cache
