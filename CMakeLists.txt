@@ -45,16 +45,18 @@ if(NOT CSPICE_INCLUDE_DIR OR NOT CSPICE_LIBRARY)
     message(FATAL_ERROR "CSPICE infrastructure missing. INCLUDE: ${CSPICE_INCLUDE_DIR}, LIB: ${CSPICE_LIBRARY}")
 endif()
 
-# 【修正】ImGuiおよび各種ソースの検索パスを明示的に追加
+# インcludepathの設定
 target_include_directories(PlanetViewer PRIVATE 
-    .
-    imgui
-    imgui/backends
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/imgui
+    ${CMAKE_CURRENT_SOURCE_DIR}/imgui/backends
     ${CSPICE_INCLUDE_DIR}
 )
 
 target_link_libraries(PlanetViewer PRIVATE ${CSPICE_LIBRARY})
-target_compile_definitions(PlanetViewer PRIVATE GL_SILENCE_DEPRECATION)
+
+# 【修正】Windows環境におけるmin/maxマクロの汚染を防止する NOMINMAX を追加
+target_compile_definitions(PlanetViewer PRIVATE GL_SILENCE_DEPRECATION NOMINMAX)
 
 if(WIN32)
     target_link_options(PlanetViewer PRIVATE "-static")
