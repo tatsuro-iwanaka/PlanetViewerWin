@@ -1,3 +1,4 @@
+1 ICON "icon.ico"
 KERNELS_TM              RCDATA "kernels.tm"
 NAIF0012_TLS            RCDATA "spice_kernel/naif0012.tls"
 PCK00010_TPC            RCDATA "spice_kernel/pck00010.tpc"
