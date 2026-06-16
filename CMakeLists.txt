@@ -17,6 +17,7 @@ set(SRCS main.cpp ${IMGUI_SRCS})
 
 if(WIN32)
     set(WIN_RESOURCES resource.rc)
+    # 完全に独立したスタティックバイナリを生成するフラグ（/MT）
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded")
 endif()
 
@@ -45,7 +46,7 @@ if(NOT CSPICE_INCLUDE_DIR OR NOT CSPICE_LIBRARY)
     message(FATAL_ERROR "CSPICE infrastructure missing. INCLUDE: ${CSPICE_INCLUDE_DIR}, LIB: ${CSPICE_LIBRARY}")
 endif()
 
-# インcludepathの設定
+# インクルードパスの設定
 target_include_directories(PlanetViewer PRIVATE 
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/imgui
@@ -55,11 +56,13 @@ target_include_directories(PlanetViewer PRIVATE
 
 target_link_libraries(PlanetViewer PRIVATE ${CSPICE_LIBRARY})
 
-# 【修正】Windows環境におけるmin/maxマクロの汚染を防止する NOMINMAX を追加
+# Windows特有のmin/maxマクロ汚染の防止
 target_compile_definitions(PlanetViewer PRIVATE GL_SILENCE_DEPRECATION NOMINMAX)
 
+# OS別のシステムグラフィックスライブラリ結合
 if(WIN32)
-    target_link_options(PlanetViewer PRIVATE "-static")
+    # 【修正】Windows標準のOpenGLライブラリを明示的に結合
+    target_link_libraries(PlanetViewer PRIVATE opengl32)
 endif()
 
 if(APPLE)
