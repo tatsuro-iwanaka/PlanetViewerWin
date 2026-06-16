@@ -1,49 +1,29 @@
-name: Build Windows Single EXE
-
-on:
-  push:
-    branches: [ "main", "master" ] # トリガーとなるブランチ名
-
-jobs:
-  build-windows:
-    runs-on: windows-latest
-
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-
-    - name: Download SPICE Kernels
+- name: Download SPICE Kernels
       shell: pwsh
       run: |
         mkdir -Force spice_kernel
 
-        # Google Driveの大容量警告HTMLから直接confirmコードを抽出する堅牢関数
+        # クッキーファイルから正確に確認コードを抽出する修正関数
         function Download-FromGDrive {
             param (
                 [string]$FileId,
                 [string]$OutPath
             )
-            # 1次試行：一旦一時ファイルとして取得
-            curl.exe -Lc cookie.txt "https://drive.google.com/uc?export=download&id=$FileId" -o temp_download.dat
+            # 1次試行：クッキーを保存しつつダウンロードを試みる（大容量ファイルはここで2KBの警告HTMLになる）
+            curl.exe -Lc cookie.txt "https://drive.google.com/uc?export=download&id=$FileId" -o $OutPath
 
-            # ダウンロードされたファイルが1MB未満（警告HTMLの疑い）があるかチェック
-            $fileSize = (Get-Item temp_download.dat).Length
-            if ($fileSize -lt 1048576) {
-                # HTML内部から confirm=XXXX のパターンを検索
-                $match = Select-String -Path temp_download.dat -Pattern "confirm=([0-9a-zA-Z_\-]+)"
-                if ($match) {
-                    # 警告ページだった場合：確認コードを抽出して本番ダウンロードを実行（上書き）
-                    $CODE = $match.Matches[0].Groups[1].Value
+            # クッキーファイルが存在し、かつ警告クッキーが書き込まれているか判定
+            if (Test-Path cookie.txt) {
+                $warningLine = Get-Content cookie.txt | Select-String "download_warning"
+                if ($warningLine) {
+                    # クッキーの行を空白で分割し、末尾にある確認コードを抽出
+                    $CODE = ($warningLine -split "\s+")[-1]
+                    
+                    # 抽出した確認コードを使い、本物のバイナリデータを上書きダウンロード
                     curl.exe -Lb cookie.txt "https://drive.google.com/uc?export=download&confirm=$CODE&id=$FileId" -o $OutPath
-                    Remove-Item temp_download.dat -ErrorAction SilentlyContinue
-                    if (Test-Path cookie.txt) { Remove-Item cookie.txt -ErrorAction SilentlyContinue }
-                    return
                 }
+                Remove-Item cookie.txt -ErrorAction SilentlyContinue
             }
-            
-            # 通常ファイル（または大容量で直接落とせた場合）は一時ファイルを正規パスへ移動
-            Move-Item temp_download.dat $OutPath -Force
-            if (Test-Path cookie.txt) { Remove-Item cookie.txt -ErrorAction SilentlyContinue }
         }
 
         # 各ファイルの一括ダウンロード実行
@@ -72,34 +52,3 @@ jobs:
         Download-FromGDrive "12jyDW1jjQyZdEQWQv8UpKkLMeUJ0ibV6" "spice_kernel/jup365_subset.bsp"
 
         Write-Output "All kernels verification and download complete."
-
-    # ビルド高速化のためのキャッシュ機構
-    - name: Restore vcpkg cache
-      uses: actions/cache@v4
-      with:
-        path: $VCPKG_INSTALLATION_ROOT/downloads
-        key: vcpkg-windows-cache-${{ hashFiles('CMakeLists.txt') }}
-        
-    # vcpkgを使用して、Windows用の全依存関係をスタティック形式で一括インストール
-    - name: Install Dependencies via vcpkg
-      run: |
-        $env:VCPKG_DEFAULT_TRIPLET="x64-windows-static"
-        vcpkg install glfw3 opencv4 cspice
-
-    # CMakeの構成設定（vcpkgのツールチェーンを結合）
-    - name: Configure CMake
-      run: |
-        cmake -B build -S . `
-          -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
-          -DVCPKG_TARGET_TRIPLET=x64-windows-static
-
-    # 完全に独立した単一の .exe バイナリのビルド実行
-    - name: Build Project
-      run: cmake --build build --config Release
-
-    # 生成されたEXEファイルをGitHubのWebUIからダウンロード可能にする
-    - name: Upload Artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: PlanetViewer-Windows-x64-Single
-        path: build/Release/PlanetViewer.exe
