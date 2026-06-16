@@ -1,0 +1,43 @@
+name: Build Windows Single EXE
+
+on:
+  push:
+    branches: [ "main", "master" ] # トリガーとなるブランチ名
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    # ビルド高速化のためのキャッシュ機構
+    - name: Restore vcpkg cache
+      uses: actions/cache@v4
+      with:
+        path: $VCPKG_INSTALLATION_ROOT/downloads
+        key: vcpkg-windows-cache-${{ hashFiles('CMakeLists.txt') }}
+
+    # vcpkgを使用して、Windows用の全依存関係をスタティック形式で一括インストール
+    - name: Install Dependencies via vcpkg
+      run: |
+        vcpkg install glfw3:x64-windows-static opencv4:x64-windows-static cspice:x64-windows-static
+
+    # CMakeの構成設定（vcpkgのツールチェーンを結合）
+    - name: Configure CMake
+      run: |
+        cmake -B build -S . `
+          -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
+          -DVCPKG_TARGET_TRIPLET=x64-windows-static
+
+    # 完全に独立した単一の .exe バイナリのビルド実行
+    - name: Build Project
+      run: cmake --build build --config Release
+
+    # 生成されたEXEファイルをGitHubのWebUIからダウンロード可能にする
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: PlanetViewer-Windows-x64-Single
+        path: build/Release/PlanetViewer.exe
