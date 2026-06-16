@@ -27,9 +27,8 @@ find_package(glfw3 REQUIRED)
 find_package(OpenCV REQUIRED)
 target_link_libraries(PlanetViewer PRIVATE glfw ${OpenCV_LIBS})
 
-# CSPICE の探索（環境別にロジックを完全隔離）
+# CSPICE の探索
 if(WIN32)
-    # vcpkg環境：サブフォルダ(PATH_SUFFIXES)および小文字名の可能性を網羅して自動探索
     find_path(CSPICE_INCLUDE_DIR 
         NAMES SpiceUsr.h spiceusr.h 
         PATH_SUFFIXES cspice
@@ -38,19 +37,23 @@ if(WIN32)
         NAMES cspice libcspice
     )
 else()
-    # Mac環境：Homebrewの固定パスを走査
     find_path(CSPICE_INCLUDE_DIR NAMES SpiceUsr.h PATHS "/opt/homebrew/Cellar/cspice/67/include")
     find_library(CSPICE_LIBRARY NAMES cspice libcspice.a PATHS "/opt/homebrew/Cellar/cspice/67/lib")
 endif()
 
-# 検知成否のバリデーション
 if(NOT CSPICE_INCLUDE_DIR OR NOT CSPICE_LIBRARY)
     message(FATAL_ERROR "CSPICE infrastructure missing. INCLUDE: ${CSPICE_INCLUDE_DIR}, LIB: ${CSPICE_LIBRARY}")
 endif()
 
-target_include_directories(PlanetViewer PRIVATE ${CSPICE_INCLUDE_DIR})
-target_link_libraries(PlanetViewer PRIVATE ${CSPICE_LIBRARY})
+# 【修正】ImGuiおよび各種ソースの検索パスを明示的に追加
+target_include_directories(PlanetViewer PRIVATE 
+    .
+    imgui
+    imgui/backends
+    ${CSPICE_INCLUDE_DIR}
+)
 
+target_link_libraries(PlanetViewer PRIVATE ${CSPICE_LIBRARY})
 target_compile_definitions(PlanetViewer PRIVATE GL_SILENCE_DEPRECATION)
 
 if(WIN32)
