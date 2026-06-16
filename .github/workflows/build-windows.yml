@@ -12,34 +12,41 @@ jobs:
     - name: Checkout repository
       uses: actions/checkout@v4
 
-    # ---- 【修正・完全版】ビルド時カーネル自動ダウンロードステップ ----
     - name: Download SPICE Kernels
       shell: pwsh
       run: |
         mkdir -Force spice_kernel
 
-        # Google Driveから容量（警告の有無）を自動判別してダウンロードする内部関数を定義
+        # Google Driveの大容量警告HTMLから直接confirmコードを抽出する堅牢関数
         function Download-FromGDrive {
             param (
                 [string]$FileId,
                 [string]$OutPath
             )
-            # 1次試行：通常のダウンロードエンドポイントへリクエストを送信
-            curl.exe -Lc cookie.txt "https://drive.google.com/uc?export=download&id=$FileId" -o $OutPath
+            # 1次試行：一旦一時ファイルとして取得
+            curl.exe -Lc cookie.txt "https://drive.google.com/uc?export=download&id=$FileId" -o temp_download.dat
 
-            # クッキーファイルを解析し、大容量ファイル特有のウイルススキャン警告文字列の有無を判定
-            if (Test-Path cookie.txt) {
-                $warning = Get-Content cookie.txt | Select-String "_warning_"
-                if ($warning) {
-                    # 警告が存在する場合、末尾の4文字の確認コードを抽出して再要求を実行
-                    $CODE = ($warning -split "\s+")[-1]
+            # ダウンロードされたファイルが1MB未満（警告HTMLの疑い）があるかチェック
+            $fileSize = (Get-Item temp_download.dat).Length
+            if ($fileSize -lt 1048576) {
+                # HTML内部から confirm=XXXX のパターンを検索
+                $match = Select-String -Path temp_download.dat -Pattern "confirm=([0-9a-zA-Z_\-]+)"
+                if ($match) {
+                    # 警告ページだった場合：確認コードを抽出して本番ダウンロードを実行（上書き）
+                    $CODE = $match.Matches[0].Groups[1].Value
                     curl.exe -Lb cookie.txt "https://drive.google.com/uc?export=download&confirm=$CODE&id=$FileId" -o $OutPath
+                    Remove-Item temp_download.dat -ErrorAction SilentlyContinue
+                    if (Test-Path cookie.txt) { Remove-Item cookie.txt -ErrorAction SilentlyContinue }
+                    return
                 }
-                Remove-Item cookie.txt -ErrorAction SilentlyContinue
             }
+            
+            # 通常ファイル（または大容量で直接落とせた場合）は一時ファイルを正規パスへ移動
+            Move-Item temp_download.dat $OutPath -Force
+            if (Test-Path cookie.txt) { Remove-Item cookie.txt -ErrorAction SilentlyContinue }
         }
 
-        # 各URLから抽出した一意のファイルIDを、上記関数へ引き渡して順次実行
+        # 各ファイルの一括ダウンロード実行
         Write-Output "Downloading naif0012.tls..."
         Download-FromGDrive "1obQviGyym4dtEMsgENteACCZxEKMG0BS" "spice_kernel/naif0012.tls"
 
@@ -64,7 +71,7 @@ jobs:
         Write-Output "Downloading jup365_subset.bsp..."
         Download-FromGDrive "12jyDW1jjQyZdEQWQv8UpKkLMeUJ0ibV6" "spice_kernel/jup365_subset.bsp"
 
-        Write-Output "All kernels downloaded successfully."
+        Write-Output "All kernels verification and download complete."
 
     # ビルド高速化のためのキャッシュ機構
     - name: Restore vcpkg cache
