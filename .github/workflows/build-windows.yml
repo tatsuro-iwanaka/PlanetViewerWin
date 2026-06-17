@@ -22,34 +22,31 @@ jobs:
                 [string]$FileId,
                 [string]$OutPath
             )
-            # 1. 提示された手順通り、まずはボディ（HTML）を捨ててクッキーのみを生成
-            curl.exe -sc cookie.txt "https://drive.google.com/uc?export=download&id=$FileId" > $null
+            # 1次試行：ファイルをダウンロード
+            curl.exe -Lc cookie.txt "https://drive.google.com/uc?export=download&id=$FileId" -o $OutPath
 
-            if (Test-Path cookie.txt) {
-                # 2. awk '/_warning_/ {print $NF}' の挙動をPowerShellで完全エミュレート
-                $warningMatch = Get-Content cookie.txt | Select-String "_warning_"
+            if (Test-Path $OutPath) {
+                $html = Get-Content -Raw $OutPath
                 
-                if ($warningMatch) {
-                    # 一致した行のテキストを抽出し、空白・タブで分割。末尾の4文字コードを厳密に取得
-                    $line = $warningMatch[0].Line.Trim()
-                    $chunks = $line -split "\s+"
-                    $CODE = $chunks[-1].Trim()
+                # ファイルの中身がウイルススキャン警告HTMLか判定
+                if ($html -match "Virus scan warning") {
+                    Write-Output "Virus scan warning detected for ID: $FileId. Parsing new parameters..."
+                    
+                    # HTMLの内部構造から confirm と uuid を正規表現で安全に抽出
+                    $CONFIRM = ""
+                    $UUID = ""
+                    if ($html -match 'name="confirm" value="([^"]+)"') { $CONFIRM = $Matches[1] }
+                    if ($html -match 'name="uuid" value="([^"]+)"') { $UUID = $Matches[1] }
 
-                    Write-Output "Warning bypassed for ID: $FileId. Confirm Code: $CODE"
-                    # 3. 抽出したコードを付与して本番ダウンロードを実行
-                    curl.exe -Lb cookie.txt "https://drive.google.com/uc?export=download&confirm=${CODE}&id=${FileId}" -o $OutPath
-                } else {
-                    # ファイルサイズが小さく、確認ダイアログが出ない場合の手順
-                    Write-Output "Small file detected for ID: $FileId. Downloading directly..."
-                    curl.exe -L "https://drive.google.com/uc?export=download&id=${FileId}" -o $OutPath
+                    Write-Output "Executing payload extraction from drive.usercontent.google.com..."
+                    # 新仕様のエンドポイントへパラメータを完全同期させて再ダウンロードを実行
+                    curl.exe -Lb cookie.txt "https://drive.usercontent.google.com/download?id=$FileId&export=download&confirm=$CONFIRM&uuid=$UUID" -o $OutPath
                 }
-                
-                # 一時クッキーの削除
-                Remove-Item cookie.txt -ErrorAction SilentlyContinue
+                if (Test-Path cookie.txt) { Remove-Item cookie.txt -ErrorAction SilentlyContinue }
             }
         }
 
-        # 全ファイルをGoogle Driveから順次取得
+        # 順次ダウンロードを実行
         Write-Output "Downloading naif0012.tls..."
         Download-FromGDrive "1obQviGyym4dtEMsgENteACCZxEKMG0BS" "spice_kernel/naif0012.tls"
 
