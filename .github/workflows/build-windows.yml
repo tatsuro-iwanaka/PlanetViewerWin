@@ -103,3 +103,13 @@ jobs:
       with:
         name: PlanetViewer-Windows-x64-Single
         path: build/Release/PlanetViewer.exe
+
+    # 【追加】タグプッシュ時に自動でGitHub Releaseを作成し、EXEを直接添付
+    - name: Create GitHub Release
+      uses: softprops/action-gh-release@v2
+      if: startsWith(github.ref, 'refs/tags/')
+      with:
+        files: build/Release/PlanetViewer.exe
+        generate_release_notes: true # コミット履歴からリリースノートを自動生成
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
